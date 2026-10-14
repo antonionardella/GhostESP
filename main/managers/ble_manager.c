@@ -925,10 +925,15 @@ bool ble_init_with_pre_host(ble_pre_host_init_fn init_fn,
     }
     
     // --- Memory check before BLE init ---
-    size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-    if (free_heap < (45 * 1024)) {
-        ESP_LOGW(TAG_BLE, "WARNING: Less than 45KB of free RAM available (%d bytes). BLE may fail to initialize!", (int)free_heap);
-        TERMINAL_VIEW_ADD_TEXT("WARNING: <45KB RAM free (%d bytes). BLE may not initialize!\n", (int)free_heap);
+    // Must check INTERNAL RAM specifically: the BT controller's DMA-capable
+    // buffers can only come from internal SRAM, never PSRAM. Checking
+    // MALLOC_CAP_8BIT alone pulls in PSRAM on boards that have it, which
+    // made this warning unreachable regardless of actual internal-RAM
+    // pressure (e.g. with GhostNet AP + LoRa already resident on boards
+    // with only ~250KB total internal SRAM, such as the XIAO ESP32-S3).
+    if (free_internal < (45 * 1024)) {
+        ESP_LOGW(TAG_BLE, "WARNING: Less than 45KB of free INTERNAL RAM available (%d bytes). BLE may fail to initialize or become unstable!", (int)free_internal);
+        TERMINAL_VIEW_ADD_TEXT("WARNING: <45KB internal RAM free (%d bytes). BLE may not initialize or become unstable!\n", (int)free_internal);
     }
 
     if (ble_initialized) {
