@@ -33,5 +33,5 @@ __pycache__
 *.pyc
 local_builds
 venv
-
+esp-idf*
 
