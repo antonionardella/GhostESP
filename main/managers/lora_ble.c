@@ -184,7 +184,51 @@ static void req_conn_params(uint16_t conn, bool fast) {
 
 // MTU (517) + 2M PHY + 251B data-length attempts. Each step is rc-checked and
 // compiled only where its feature macro/API exists in this IDF (non-fatal).
+//
+// IMPORTANT: these are split across staggered one-shot timers rather than
+// fired back-to-back in one call. Stacking multiple LE-controller-level HCI
+// commands (PHY update, Data Length Extension, connection parameter update)
+// in the same tick was found to reproduce the exact "HCI wait for ack
+// returned 19" / BLE host reset already documented below for the
+// PHY-during-pairing case -- except here it reproduces on every connect,
+// PIN pairing or not, since link_gate_open() only guards the pairing path.
+// Root cause (controller firmware behavior under back-to-back LE control
+// procedure requests) is still unconfirmed; this is a workaround, not a
+// fix of the controller itself. See upstream issue for the full repro.
 static bool link_gate_open(uint16_t conn); // false while a PIN pairing is pending
+
+#define TUNE_LINK_PHY_DELAY_US   (250 * 1000)
+#define TUNE_LINK_DLE_DELAY_US   (500 * 1000)
+
+static esp_timer_handle_t s_tune_phy_timer = NULL;
+static esp_timer_handle_t s_tune_dle_timer = NULL;
+
+// Both stages read the live s_conn rather than a handle captured at
+// schedule time: the timer is created once and reused across reconnects,
+// so a captured arg would go stale. If the link dropped (or a brand new
+// connection replaced it) by the time the timer fires, s_conn reflects
+// that and we skip rather than act on a now-wrong handle.
+static void tune_link_phy_stage(void *arg) {
+    (void)arg;
+#if defined(CONFIG_BT_NIMBLE_ENABLED) && defined(BLE_GAP_EVENT_PHY_UPDATE_COMPLETE)
+    if (s_conn == BLE_HS_CONN_HANDLE_NONE) return;
+    // 2M PHY: allow 1M|2M so 2M is used where supported, 1M fallback else.
+    int rc = ble_gap_set_prefered_le_phy(s_conn,
+            (uint8_t)(BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK),
+            (uint8_t)(BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK),
+            BLE_GAP_LE_PHY_CODED_ANY);
+    if (rc != 0) ESP_LOGW(TAG, "2M PHY request rc=%d", rc);
+#endif
+}
+
+static void tune_link_dle_stage(void *arg) {
+    (void)arg;
+#if defined(CONFIG_BT_NIMBLE_ENABLED) && defined(BLE_GAP_EVENT_DATA_LEN_CHG)
+    if (s_conn == BLE_HS_CONN_HANDLE_NONE) return;
+    int rc = ble_gap_set_data_len(s_conn, BLE_DLE_OCTETS, BLE_DLE_TIME_US);
+    if (rc != 0) ESP_LOGW(TAG, "data-len %uB request rc=%d", BLE_DLE_OCTETS, rc);
+#endif
+}
 
 static void tune_link(uint16_t conn, bool fast) {
     if (conn == BLE_HS_CONN_HANDLE_NONE) return;
@@ -199,16 +243,37 @@ static void tune_link(uint16_t conn, bool fast) {
     int rc = ble_att_set_preferred_mtu(BLE_PREFERRED_MTU);
     if (rc != 0) ESP_LOGW(TAG, "preferred MTU %u rc=%d", BLE_PREFERRED_MTU, rc);
 #if defined(BLE_GAP_EVENT_PHY_UPDATE_COMPLETE)
-    // 2M PHY: allow 1M|2M so 2M is used where supported, 1M fallback else.
-    rc = ble_gap_set_prefered_le_phy(conn,
-            (uint8_t)(BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK),
-            (uint8_t)(BLE_GAP_LE_PHY_1M_MASK | BLE_GAP_LE_PHY_2M_MASK),
-            BLE_GAP_LE_PHY_CODED_ANY);
-    if (rc != 0) ESP_LOGW(TAG, "2M PHY request rc=%d", rc);
+    if (!s_tune_phy_timer) {
+        esp_timer_create_args_t a = {.callback = tune_link_phy_stage, .name = "lora_phy"};
+        esp_timer_create(&a, &s_tune_phy_timer);
+    }
+    if (s_tune_phy_timer) {
+        esp_timer_stop(s_tune_phy_timer); // no-op if not running
+        esp_timer_start_once(s_tune_phy_timer, TUNE_LINK_PHY_DELAY_US);
+    }
 #endif
 #if defined(BLE_GAP_EVENT_DATA_LEN_CHG)
-    rc = ble_gap_set_data_len(conn, BLE_DLE_OCTETS, BLE_DLE_TIME_US);
-    if (rc != 0) ESP_LOGW(TAG, "data-len %uB request rc=%d", BLE_DLE_OCTETS, rc);
+    // DISABLED FOR NOW: this specific request (ble_gap_set_data_len, HCI
+    // ogf=0x08 ocf=0x0022) reproducibly times out this controller with a
+    // consistent ~2s HCI_wait_for_ack failure, even fully isolated on its
+    // own staggered timer with no other LE-controller command anywhere
+    // near it. MTU negotiation + 2M PHY alone have been confirmed on
+    // hardware to support real pairing and sustained GATT notify traffic,
+    // so this is skipped rather than kept retrying something whose
+    // controller-level cause is still unconfirmed. Re-enable once that's
+    // understood -- see upstream issue. Timer/stage function left in place
+    // deliberately so re-enabling is a one-line change.
+    (void)tune_link_dle_stage;
+#if 0
+    if (!s_tune_dle_timer) {
+        esp_timer_create_args_t a = {.callback = tune_link_dle_stage, .name = "lora_dle"};
+        esp_timer_create(&a, &s_tune_dle_timer);
+    }
+    if (s_tune_dle_timer) {
+        esp_timer_stop(s_tune_dle_timer);
+        esp_timer_start_once(s_tune_dle_timer, TUNE_LINK_DLE_DELAY_US);
+    }
+#endif
 #endif
 #else
     (void)fast;
@@ -843,6 +908,15 @@ void lora_ble_stop(void) {
     // Release any held pairing PIN so the display can resume.
     if (s_pin_mode != LORA_BLE_PIN_NONE) status_display_clear();
     flush_link_queues(); // set_linked(false) path: drop stale frames
+    // Stop every lora_ble-owned timer before tearing down the host below.
+    // Any of these left pending can fire after ble_deinit() has already
+    // torn down the NimBLE host/controller: adv_tick() calls
+    // ble_hs_synced() unconditionally and crashes (LoadProhibited) on a
+    // dead host, and the phy/dle stages would dereference equally dead
+    // state. Order matters: stop timers first, then deinit the host.
+    if (s_adv_timer) esp_timer_stop(s_adv_timer); // no-op if not running
+    if (s_tune_phy_timer) esp_timer_stop(s_tune_phy_timer);
+    if (s_tune_dle_timer) esp_timer_stop(s_tune_dle_timer);
     // Full teardown like every other BLE flow: releases the host and lets
     // ble_resume_networking() bring WiFi/AP back (on no-PSRAM the AP was
     // fully deinitialized on the way in). Without this the radio keeps
