@@ -147,6 +147,7 @@ static const char *NVS_INPUT_REPEAT_SPEED_KEY = "repeat_spd";
 static const char *NVS_HIGH_CONTRAST_KEY = "high_contrast";
 static const char *NVS_SUN_MODE_KEY = "sun_mode";
 static const char *NVS_SUN_MODE_SAVED_BRIGHTNESS_KEY = "sun_mode_pb";
+static const char *NVS_PRIVACY_MODE_KEY = "privacy_mode";
 static const char *NVS_LOG_LEVEL_KEY = "log_level";
 static const char *NVS_FAVORITES_KEY = "favs";
 static const char *NVS_FAVS_BYPASS_KEY = "favs_bypass";
@@ -318,6 +319,7 @@ void settings_set_defaults(FSettings *settings) {
   settings->high_contrast = false;
   settings->sun_mode = false;
   settings->sun_mode_saved_brightness = 100;
+  settings->privacy_mode = false;
   settings->log_level = ESP_LOG_WARN;
   settings->favorites_count = 0;
   memset(settings->favorites, 0, sizeof(settings->favorites));
@@ -990,6 +992,10 @@ void settings_load(FSettings *settings) {
   if (err == ESP_OK) {
     settings->sun_mode_saved_brightness = value_u8;
   }
+  err = nvs_get_u8(nvsHandle, NVS_PRIVACY_MODE_KEY, &value_u8);
+  if (err == ESP_OK) {
+    settings->privacy_mode = (bool)value_u8;
+  }
   settings_normalize_modes(settings);
   err = nvs_get_u8(nvsHandle, NVS_LOG_LEVEL_KEY, &value_u8);
   if (err == ESP_OK && value_u8 <= ESP_LOG_VERBOSE) {
@@ -1476,6 +1482,10 @@ void settings_persist_setting(SettingsType setting) {
             key = NVS_SUN_MODE_KEY;
             nvs_set_u8(nvsHandle, NVS_SUN_MODE_SAVED_BRIGHTNESS_KEY, G_Settings.sun_mode_saved_brightness);
             break;
+        case SETTING_PRIVACY_MODE:
+            err = nvs_set_u8(nvsHandle, NVS_PRIVACY_MODE_KEY, G_Settings.privacy_mode ? 1 : 0);
+            key = NVS_PRIVACY_MODE_KEY;
+            break;
         case SETTING_LOG_LEVEL:
             err = nvs_set_u8(nvsHandle, NVS_LOG_LEVEL_KEY, G_Settings.log_level);
             key = NVS_LOG_LEVEL_KEY;
@@ -1825,6 +1835,7 @@ esp_err_t settings_save(const FSettings *settings) {
     NVS_SET(nvs_set_u8(nvsHandle, NVS_HIGH_CONTRAST_KEY, settings->high_contrast ? 1 : 0));
     NVS_SET(nvs_set_u8(nvsHandle, NVS_SUN_MODE_KEY, settings->sun_mode ? 1 : 0));
     NVS_SET(nvs_set_u8(nvsHandle, NVS_SUN_MODE_SAVED_BRIGHTNESS_KEY, settings->sun_mode_saved_brightness));
+    NVS_SET(nvs_set_u8(nvsHandle, NVS_PRIVACY_MODE_KEY, settings->privacy_mode ? 1 : 0));
     NVS_SET(nvs_set_u8(nvsHandle, NVS_LOG_LEVEL_KEY, settings->log_level));
     {
         uint8_t blob[1 + sizeof(settings->favorites)];
@@ -2730,6 +2741,16 @@ void settings_set_sun_mode(FSettings *settings, bool enabled) {
 
 bool settings_get_sun_mode(const FSettings *settings) {
   return settings ? settings->sun_mode : false;
+}
+
+void settings_set_privacy_mode(FSettings *settings, bool enabled) {
+  if (settings) {
+    settings->privacy_mode = enabled;
+  }
+}
+
+bool settings_get_privacy_mode(const FSettings *settings) {
+  return settings ? settings->privacy_mode : false;
 }
 
 void settings_set_log_level(FSettings *settings, uint8_t level) {

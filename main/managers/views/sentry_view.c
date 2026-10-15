@@ -25,6 +25,7 @@
 
 #include "managers/views/sentry_view.h"
 #include "core/ouis.h"
+#include "core/utils.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "gui/accessibility_fonts.h"
@@ -420,9 +421,16 @@ static void sentry_merge(void) {
 }
 
 static void format_rec(const sentry_rec_t *r, char *head, size_t hs, char *det, size_t ds) {
-    snprintf(head, hs, "%s  %s", r->tag, r->name);
-    if (r->ble) snprintf(det, ds, "%s  %ddBm", r->mac, (int)r->rssi);
-    else snprintf(det, ds, "%s  %ddBm ch%u", r->mac, (int)r->rssi, (unsigned)r->channel);
+    /* r->name can be an SSID or a MAC; r->mac is always a formatted MAC. Redact
+     * stack copies only -- s_rec[] stays raw for parse/compare/track logic. */
+    char name[sizeof(r->name)];
+    privacy_redact_ssid_copy(r->name, name, sizeof(name));
+    char mac[sizeof(r->mac)];
+    snprintf(mac, sizeof(mac), "%s", r->mac);
+    privacy_redact_mac(mac);
+    snprintf(head, hs, "%s  %s", r->tag, name);
+    if (r->ble) snprintf(det, ds, "%s  %ddBm", mac, (int)r->rssi);
+    else snprintf(det, ds, "%s  %ddBm ch%u", mac, (int)r->rssi, (unsigned)r->channel);
 }
 
 // ---- radios ---------------------------------------------------------------
@@ -530,16 +538,21 @@ static void show_alert(const sentry_rec_t *r) {
     lv_obj_set_style_text_color(tag, lv_color_hex(r->color), 0);
     lv_obj_set_style_text_font(tag, accessibility_get_font_title(), 0);
 
+    char name[sizeof(r->name)];
+    privacy_redact_ssid_copy(r->name, name, sizeof(name));
     lv_obj_t *line = lv_label_create(alert_overlay);
-    lv_label_set_text(line, r->name);
+    lv_label_set_text(line, name);
     lv_obj_set_style_text_font(line, accessibility_get_font_body(), 0);
     lv_obj_set_style_text_color(line, lv_color_hex(c_text), 0);
     lv_obj_set_width(line, LV_PCT(100));
     lv_obj_set_style_text_align(line, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(line, LV_LABEL_LONG_DOT);
 
+    char mac[sizeof(r->mac)];
+    snprintf(mac, sizeof(mac), "%s", r->mac);
+    privacy_redact_mac(mac);
     lv_obj_t *sub = lv_label_create(alert_overlay);
-    lv_label_set_text_fmt(sub, "%s  %ddBm", r->mac, (int)r->rssi);
+    lv_label_set_text_fmt(sub, "%s  %ddBm", mac, (int)r->rssi);
     lv_obj_set_style_text_font(sub, accessibility_get_font_small(), 0);
     lv_obj_set_style_text_color(sub, lv_color_hex(c_dim), 0);
     lv_obj_set_width(sub, LV_PCT(100));
@@ -749,6 +762,7 @@ static void sentry_track_cb(lv_event_t *event) {
     char label[48];
     if (is_ble) snprintf(label, sizeof(label), "%s", s_detail->name);
     else snprintf(label, sizeof(label), "%s %s", s_detail->tag, s_detail->name);
+    privacy_redact_ssid(label);  /* title only; tracking uses the raw MAC below */
 
     if (is_ble) {
         int idx = ble_index_for_mac(s_detail->mac);
@@ -797,9 +811,16 @@ static void open_detail(void) {
     char vendor[64] = "Unknown";
     (void)ouis_lookup_vendor(s_detail->mac, vendor, sizeof(vendor));
 
+    /* Display copies only: s_detail stays raw for parse/compare/track. */
+    char name[sizeof(s_detail->name)];
+    privacy_redact_ssid_copy(s_detail->name, name, sizeof(name));
+    char mac[sizeof(s_detail->mac)];
+    snprintf(mac, sizeof(mac), "%s", s_detail->mac);
+    privacy_redact_mac(mac);
+
     detail_view_add_info(detail, "Category", rec_category(s_detail));
-    detail_view_add_info(detail, "Name", s_detail->name);
-    detail_view_add_info(detail, "MAC", s_detail->mac);
+    detail_view_add_info(detail, "Name", name);
+    detail_view_add_info(detail, "MAC", mac);
     detail_view_add_info(detail, "Vendor", vendor);
     if (s_detail->sub[0]) detail_view_add_info(detail, "Type", s_detail->sub);
     if (!s_detail->ble) {

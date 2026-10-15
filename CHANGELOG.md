@@ -11,6 +11,7 @@ Untagged entries are by ([@jaylikesbunda](https://github.com/jaylikesbunda)). A 
 - Added NEW Sentry view that fuses the Flock camera detector, BLE device-detect and NEW WiFi camera/ALPR/Ring/Axon detectors
 - BLE device detect scan now recognises Meta glasses and Google Find My tags
 - Added slide-to-unlock for the no-PIN lockscreen on touchscreen devices and enabled it by default
+- Added Privacy Mode which redacts third-party SSIDs, MAC addresses, BLE device names, LAN hostnames, GPS coordinates and LoRa/Mesh node identities
 
 ### Fixed
 
@@ -23,6 +24,8 @@ Untagged entries are by ([@jaylikesbunda](https://github.com/jaylikesbunda)). A 
 - Setup wizard lists now scroll with touch drag like the other native views
 - Fixed the DNS sinkhole blocklist picker duplicating or skipping entries across pages when `stats.txt` was present (it now pages over the visible list)
 - Fixed the shell command registry running out of slots, which silently dropped the newest commands on the largest board configs
+- Fixed Poltergeist IR transmission from the ESP
+- Fixed long inline IR payloads being truncated by the serial line buffer, which corrupted the transmitted signal
 
 ## v2.2.1
 

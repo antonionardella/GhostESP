@@ -538,6 +538,7 @@ void register_commands() {
     register_command("setcountry", handle_setcountry);
     register_command("webauth", handle_web_auth_cmd);
     register_command("webuiap", handle_webuiap_cmd);
+    register_command("privacy", handle_privacy_cmd);
     register_command("clockstyle", handle_clockstyle_cmd);
     register_command("statusbarclock", handle_statusbarclock_cmd);
 #if !defined(CONFIG_IDF_TARGET_ESP32S2) && !defined(GHOSTESP_NO_NATIVE_BLE)
