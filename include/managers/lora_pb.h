@@ -20,6 +20,7 @@ extern "C" {
 #define MESHTASTIC_PORT_TEXT 1       // PortNum.TEXT_MESSAGE_APP
 #define MESHTASTIC_HW_HELTEC_V3 43   // HardwareModel.HELTEC_V3
 #define MESHTASTIC_HW_CROWPANEL 97   // HardwareModel.CROWPANEL
+#define MESHTASTIC_HW_SEEED_XIAO_S3 81   // HardwareModel.SEEED_XIAO_S3
 #define MESHTASTIC_REGION_US 1       // Config.LoRaConfig.RegionCode.US
 #define MESHTASTIC_REGION_EU868 3    // Config.LoRaConfig.RegionCode.EU_868
 #define MESHTASTIC_CH_ROLE_PRIMARY 1 // Channel.Role.PRIMARY

@@ -18,14 +18,24 @@ uint32_t lora_pb_local_hardware_model(void) {
     if (strncmp(CONFIG_BUILD_CONFIG_TEMPLATE, "crowpanel_advance",
                 strlen("crowpanel_advance")) == 0)
         return MESHTASTIC_HW_CROWPANEL;
+    // Covers xiao_esp32s3, xiao_esp32s3_sense, and xiao_esp32s3_* LoRa
+    // add-on variants (e.g. xiao_esp32s3_wio_sx1262): all are the same
+    // Seeed XIAO ESP32-S3 DK board as far as Meshtastic's hw_model is
+    // concerned -- it identifies the base board, not the attached radio
+    // module. Does not cover xiao_esp32c5 (different MCU; no matching
+    // enum value upstream yet).
+    if (strncmp(CONFIG_BUILD_CONFIG_TEMPLATE, "xiao_esp32s3",
+                strlen("xiao_esp32s3")) == 0)
+        return MESHTASTIC_HW_SEEED_XIAO_S3;
 #endif
     return MESHTASTIC_HW_HELTEC_V3;
 }
 
 const char *lora_pb_local_pio_env(void) {
-    return lora_pb_local_hardware_model() == MESHTASTIC_HW_CROWPANEL
-               ? "crowpanel-advance"
-               : "heltec-v3";
+    uint32_t hw = lora_pb_local_hardware_model();
+    if (hw == MESHTASTIC_HW_CROWPANEL) return "crowpanel-advance";
+    if (hw == MESHTASTIC_HW_SEEED_XIAO_S3) return "seeed-xiao-s3";
+    return "heltec-v3";
 }
 
 // ---------- writer ----------
